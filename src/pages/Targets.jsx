@@ -3,11 +3,14 @@ import { parseMoney, minorToInput } from '../../shared/money.cjs';
 import { endOfMonth } from '../../shared/dates.cjs';
 import { evaluateTarget } from '../../shared/stats.cjs';
 import { ConfirmDialog } from '../components/ConfirmDialog.jsx';
+import { Dialog } from '../components/Dialog.jsx';
 import { TargetCard } from '../components/TargetCard.jsx';
 
-export function Targets({ state, commit, today }) {
+export function Targets({ state, commit, today, onSetRates, editingId, onEdit, onClearEdit }) {
   const [pending, setPending] = useState(null);
+  const [adding, setAdding] = useState(false);
   const [error, setError] = useState('');
+  const editing = state.targets.find((target) => target.id === editingId) || null;
 
   async function remove() {
     const id = pending;
@@ -17,25 +20,52 @@ export function Targets({ state, commit, today }) {
   }
 
   return (
-    <div className="sheet">
-      <h1>Targets</h1>
-      <p className="meta">Each target uses its own dates. The same profit can count toward more than one target. Targets do not spend money.</p>
-      {error ? <p className="form-error">{error}</p> : null}
-      {state.targets.length === 0 ? <p>No targets yet.</p> : state.targets.map((target) => (
-        <div className="section" key={target.id}>
-          <TargetCard
-            target={target}
-            report={evaluateTarget(target, state.sales, state.expenses, today)}
-            currency={state.currency}
-            rates={state.rates}
-          />
-          <EditTarget target={target} currency={state.currency} commit={commit} onError={setError} onDelete={() => setPending(target.id)} />
+    <>
+      <div className="page-heading">
+        <div>
+          <h1>Targets</h1>
+          <p className="subtitle">Your profit, measured against a date.</p>
         </div>
-      ))}
-      <section className="section">
-        <h2>Add target</h2>
-        <TargetForm currency={state.currency} today={today} commit={commit} />
-      </section>
+        <button type="button" className="button primary" onClick={() => setAdding(true)}><span className="plus">+</span>Add target</button>
+      </div>
+      {error ? <p className="form-error" role="alert">{error}</p> : null}
+      {state.targets.length === 0 ? <p className="subtitle">No targets yet.</p> : (
+        <div className="targets-grid">
+          {state.targets.map((target) => (
+            <TargetCard
+              key={target.id}
+              expanded
+              target={target}
+              report={evaluateTarget(target, state.sales, state.expenses, today)}
+              currency={state.currency}
+              rates={state.rates}
+              onSetRates={onSetRates}
+              onEdit={() => onEdit(target.id)}
+              onDelete={() => setPending(target.id)}
+            />
+          ))}
+        </div>
+      )}
+      <p className="explanation">Each target uses its own dates. The same profit can count toward both targets. Estimates use the average since the start date, including days without entries. Targets do not spend money.</p>
+      {adding ? (
+        <TargetEditor
+          currency={state.currency}
+          today={today}
+          commit={commit}
+          onClose={() => setAdding(false)}
+          onError={setError}
+        />
+      ) : null}
+      {editing ? (
+        <TargetEditor
+          currency={state.currency}
+          today={today}
+          commit={commit}
+          initial={editing}
+          onClose={onClearEdit}
+          onError={setError}
+        />
+      ) : null}
       {pending ? (
         <ConfirmDialog
           title="Delete target"
@@ -45,33 +75,11 @@ export function Targets({ state, commit, today }) {
           onCancel={() => setPending(null)}
         />
       ) : null}
-    </div>
+    </>
   );
 }
 
-function EditTarget({ target, currency, commit, onError, onDelete }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="section">
-      <div className="actions">
-        <button type="button" onClick={() => setOpen((value) => !value)}>{open ? 'Cancel' : 'Edit'}</button>
-        <button type="button" className="danger" onClick={onDelete}>Delete</button>
-      </div>
-      {open ? (
-        <TargetForm
-          currency={currency}
-          today={target.startDate}
-          commit={commit}
-          initial={target}
-          onDone={() => setOpen(false)}
-          onError={onError}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-function TargetForm({ currency, today, commit, initial, onDone, onError }) {
+function TargetEditor({ currency, today, commit, initial, onClose, onError }) {
   const [name, setName] = useState(initial ? initial.name : '');
   const [metric, setMetric] = useState(initial ? initial.metric : 'net');
   const [amount, setAmount] = useState(initial ? minorToInput(initial.targetAmount, currency.exponent) : '');
@@ -79,9 +87,15 @@ function TargetForm({ currency, today, commit, initial, onDone, onError }) {
   const [deadline, setDeadline] = useState(initial ? initial.deadline : endOfMonth(today));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const idPrefix = initial ? `edit-${initial.id}` : 'new-target';
 
   async function onSubmit(event) {
     event.preventDefault();
+    if (busy) return;
+    if (!name.trim()) {
+      setError('Enter a name.');
+      return;
+    }
     if (!amount.trim()) {
       setError('Enter a target amount.');
       return;
@@ -104,46 +118,51 @@ function TargetForm({ currency, today, commit, initial, onDone, onError }) {
       if (onError) onError(result.error);
       return;
     }
-    setError('');
-    if (!initial) {
-      setName('');
-      setAmount('');
-    }
-    if (onDone) onDone();
+    onClose();
   }
 
   return (
-    <form onSubmit={onSubmit}>
-      <div className="form-grid">
-        <div className="field wide">
-          <label htmlFor={initial ? `name-${initial.id}` : 'target-name'}>Name</label>
-          <input id={initial ? `name-${initial.id}` : 'target-name'} value={name} maxLength={80} onChange={(event) => setName(event.target.value)} />
+    <Dialog titleId="target-heading" onDismiss={onClose}>
+      <form onSubmit={onSubmit}>
+        <div className="dialog-header">
+          <h2 id="target-heading">{initial ? 'Edit target' : 'Add target'}</h2>
+          <button type="button" className="close" onClick={onClose} aria-label="Close">×</button>
         </div>
-        <div className="field">
-          <label htmlFor={initial ? `metric-${initial.id}` : 'target-metric'}>Profit to measure</label>
-          <select id={initial ? `metric-${initial.id}` : 'target-metric'} value={metric} onChange={(event) => setMetric(event.target.value)}>
-            <option value="net">Net profit</option>
-            <option value="gross">Gross profit</option>
-          </select>
+        <div className="dialog-body form-stack">
+          <label className="field" htmlFor={`${idPrefix}-name`}>
+            Name
+            <input id={`${idPrefix}-name`} value={name} maxLength={80} onChange={(event) => setName(event.target.value)} autoFocus />
+          </label>
+          <div className="form-row">
+            <label className="field" htmlFor={`${idPrefix}-metric`}>
+              Profit to measure
+              <select id={`${idPrefix}-metric`} value={metric} onChange={(event) => setMetric(event.target.value)}>
+                <option value="net">Net profit</option>
+                <option value="gross">Gross profit</option>
+              </select>
+            </label>
+            <label className="field" htmlFor={`${idPrefix}-amount`}>
+              Target amount
+              <input id={`${idPrefix}-amount`} inputMode="decimal" autoComplete="off" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} />
+            </label>
+          </div>
+          <div className="form-row">
+            <label className="field" htmlFor={`${idPrefix}-start`}>
+              Start date
+              <input id={`${idPrefix}-start`} type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} required />
+            </label>
+            <label className="field" htmlFor={`${idPrefix}-deadline`}>
+              Deadline
+              <input id={`${idPrefix}-deadline`} type="date" value={deadline} onChange={(event) => setDeadline(event.target.value)} required />
+            </label>
+          </div>
+          {error ? <p className="form-error" role="alert">{error}</p> : null}
         </div>
-        <div className="field">
-          <label htmlFor={initial ? `amount-${initial.id}` : 'target-amount'}>Target amount</label>
-          <input id={initial ? `amount-${initial.id}` : 'target-amount'} inputMode="decimal" autoComplete="off" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} />
+        <div className="dialog-footer">
+          <button type="button" className="button" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" className="button primary" disabled={busy}>{busy ? 'Saving' : 'Save changes'}</button>
         </div>
-        <div className="field">
-          <label htmlFor={initial ? `start-${initial.id}` : 'target-start'}>Start date</label>
-          <input id={initial ? `start-${initial.id}` : 'target-start'} type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} required />
-        </div>
-        <div className="field">
-          <label htmlFor={initial ? `deadline-${initial.id}` : 'target-deadline'}>Deadline</label>
-          <input id={initial ? `deadline-${initial.id}` : 'target-deadline'} type="date" value={deadline} onChange={(event) => setDeadline(event.target.value)} required />
-        </div>
-      </div>
-      {error ? <p className="form-error">{error}</p> : null}
-      <div className="actions">
-        <button type="submit" className="primary" disabled={busy}>{initial ? 'Save changes' : 'Add target'}</button>
-        {initial ? <button type="button" onClick={onDone}>Cancel</button> : null}
-      </div>
-    </form>
+      </form>
+    </Dialog>
   );
 }

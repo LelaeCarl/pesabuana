@@ -110,6 +110,18 @@ function createApi(initialDatabase, filePath, initialNotice) {
     writeAtomic(filePath, bytes);
   }
 
+  function saveAfter(change) {
+    const snapshot = Buffer.from(database.export());
+    change();
+    try {
+      persistCurrent();
+    } catch (error) {
+      database.close();
+      database = new SQL.Database(snapshot);
+      throw new Error('The records could not be saved. Nothing was changed.');
+    }
+  }
+
   function currencyRow() {
     return get('SELECT currency_code FROM settings WHERE id = 1');
   }
@@ -211,8 +223,9 @@ function createApi(initialDatabase, filePath, initialNotice) {
     const result = validateCurrencyCode(code);
     if (!result.ok) throw new Error(result.error);
     if (currencyRow()) throw new Error('Currency is already set.');
-    database.run('INSERT INTO settings (id, currency_code) VALUES (1, ?)', [result.value]);
-    persistCurrent();
+    saveAfter(() => {
+      database.run('INSERT INTO settings (id, currency_code) VALUES (1, ?)', [result.value]);
+    });
     return getState();
   }
 
@@ -222,11 +235,12 @@ function createApi(initialDatabase, filePath, initialNotice) {
     if (!result.ok) throw new Error(result.error);
     checkAmount(result.value.saleAmount, currency, 'Sale amount');
     checkAmount(result.value.directCost, currency, 'Direct cost');
-    database.run(
-      'INSERT INTO sales (entry_date, description, sale_amount, direct_cost) VALUES (?, ?, ?, ?)',
-      [result.value.entryDate, result.value.description, result.value.saleAmount, result.value.directCost],
-    );
-    persistCurrent();
+    saveAfter(() => {
+      database.run(
+        'INSERT INTO sales (entry_date, description, sale_amount, direct_cost) VALUES (?, ?, ?, ?)',
+        [result.value.entryDate, result.value.description, result.value.saleAmount, result.value.directCost],
+      );
+    });
     return getState();
   }
 
@@ -242,11 +256,12 @@ function createApi(initialDatabase, filePath, initialNotice) {
     if (!result.ok) throw new Error(result.error);
     checkAmount(result.value.saleAmount, currency, 'Sale amount');
     checkAmount(result.value.directCost, currency, 'Direct cost');
-    database.run(
-      'UPDATE sales SET entry_date = ?, description = ?, sale_amount = ?, direct_cost = ? WHERE id = ?',
-      [result.value.entryDate, result.value.description, result.value.saleAmount, result.value.directCost, input.id],
-    );
-    persistCurrent();
+    saveAfter(() => {
+      database.run(
+        'UPDATE sales SET entry_date = ?, description = ?, sale_amount = ?, direct_cost = ? WHERE id = ?',
+        [result.value.entryDate, result.value.description, result.value.saleAmount, result.value.directCost, input.id],
+      );
+    });
     return getState();
   }
 
@@ -255,8 +270,9 @@ function createApi(initialDatabase, filePath, initialNotice) {
     if (!Number.isInteger(id) || !get('SELECT id FROM sales WHERE id = ?', [id])) {
       throw new Error('That sale was not found.');
     }
-    database.run('DELETE FROM sales WHERE id = ?', [id]);
-    persistCurrent();
+    saveAfter(() => {
+      database.run('DELETE FROM sales WHERE id = ?', [id]);
+    });
     return getState();
   }
 
@@ -265,11 +281,12 @@ function createApi(initialDatabase, filePath, initialNotice) {
     const result = validateExpense(input);
     if (!result.ok) throw new Error(result.error);
     checkAmount(result.value.amount, currency, 'Expense amount');
-    database.run(
-      'INSERT INTO expenses (entry_date, description, amount) VALUES (?, ?, ?)',
-      [result.value.entryDate, result.value.description, result.value.amount],
-    );
-    persistCurrent();
+    saveAfter(() => {
+      database.run(
+        'INSERT INTO expenses (entry_date, description, amount) VALUES (?, ?, ?)',
+        [result.value.entryDate, result.value.description, result.value.amount],
+      );
+    });
     return getState();
   }
 
@@ -284,11 +301,12 @@ function createApi(initialDatabase, filePath, initialNotice) {
     const result = validateExpense(input);
     if (!result.ok) throw new Error(result.error);
     checkAmount(result.value.amount, currency, 'Expense amount');
-    database.run(
-      'UPDATE expenses SET entry_date = ?, description = ?, amount = ? WHERE id = ?',
-      [result.value.entryDate, result.value.description, result.value.amount, input.id],
-    );
-    persistCurrent();
+    saveAfter(() => {
+      database.run(
+        'UPDATE expenses SET entry_date = ?, description = ?, amount = ? WHERE id = ?',
+        [result.value.entryDate, result.value.description, result.value.amount, input.id],
+      );
+    });
     return getState();
   }
 
@@ -297,8 +315,9 @@ function createApi(initialDatabase, filePath, initialNotice) {
     if (!Number.isInteger(id) || !get('SELECT id FROM expenses WHERE id = ?', [id])) {
       throw new Error('That expense was not found.');
     }
-    database.run('DELETE FROM expenses WHERE id = ?', [id]);
-    persistCurrent();
+    saveAfter(() => {
+      database.run('DELETE FROM expenses WHERE id = ?', [id]);
+    });
     return getState();
   }
 
@@ -307,11 +326,12 @@ function createApi(initialDatabase, filePath, initialNotice) {
     const result = validateTarget(input);
     if (!result.ok) throw new Error(result.error);
     checkAmount(result.value.targetAmount, currency, 'Target amount');
-    database.run(
-      'INSERT INTO targets (name, metric, target_amount, start_date, deadline, preset_key) VALUES (?, ?, ?, ?, ?, NULL)',
-      [result.value.name, result.value.metric, result.value.targetAmount, result.value.startDate, result.value.deadline],
-    );
-    persistCurrent();
+    saveAfter(() => {
+      database.run(
+        'INSERT INTO targets (name, metric, target_amount, start_date, deadline, preset_key) VALUES (?, ?, ?, ?, ?, NULL)',
+        [result.value.name, result.value.metric, result.value.targetAmount, result.value.startDate, result.value.deadline],
+      );
+    });
     return getState();
   }
 
@@ -326,11 +346,12 @@ function createApi(initialDatabase, filePath, initialNotice) {
     const result = validateTarget(input);
     if (!result.ok) throw new Error(result.error);
     checkAmount(result.value.targetAmount, currency, 'Target amount');
-    database.run(
-      'UPDATE targets SET name = ?, metric = ?, target_amount = ?, start_date = ?, deadline = ? WHERE id = ?',
-      [result.value.name, result.value.metric, result.value.targetAmount, result.value.startDate, result.value.deadline, input.id],
-    );
-    persistCurrent();
+    saveAfter(() => {
+      database.run(
+        'UPDATE targets SET name = ?, metric = ?, target_amount = ?, start_date = ?, deadline = ? WHERE id = ?',
+        [result.value.name, result.value.metric, result.value.targetAmount, result.value.startDate, result.value.deadline, input.id],
+      );
+    });
     return getState();
   }
 
@@ -339,8 +360,9 @@ function createApi(initialDatabase, filePath, initialNotice) {
     if (!Number.isInteger(id) || !get('SELECT id FROM targets WHERE id = ?', [id])) {
       throw new Error('That target was not found.');
     }
-    database.run('DELETE FROM targets WHERE id = ?', [id]);
-    persistCurrent();
+    saveAfter(() => {
+      database.run('DELETE FROM targets WHERE id = ?', [id]);
+    });
     return getState();
   }
 
@@ -349,20 +371,22 @@ function createApi(initialDatabase, filePath, initialNotice) {
     if (code !== 'USD' && code !== 'KES') throw new Error('Choose USD or KSh.');
     const parsed = parseRate(typeof raw === 'string' ? raw : '');
     if (!parsed.ok) throw new Error(parsed.error);
-    database.run('DELETE FROM exchange_rates WHERE code = ?', [code]);
-    database.run(
-      'INSERT INTO exchange_rates (code, rate_text, updated_at) VALUES (?, ?, ?)',
-      [code, parsed.text, localStamp()],
-    );
-    persistCurrent();
+    saveAfter(() => {
+      database.run('DELETE FROM exchange_rates WHERE code = ?', [code]);
+      database.run(
+        'INSERT INTO exchange_rates (code, rate_text, updated_at) VALUES (?, ?, ?)',
+        [code, parsed.text, localStamp()],
+      );
+    });
     return getState();
   }
 
   function clearRate(code) {
     requireReady();
     if (code !== 'USD' && code !== 'KES') throw new Error('Choose USD or KSh.');
-    database.run('DELETE FROM exchange_rates WHERE code = ?', [code]);
-    persistCurrent();
+    saveAfter(() => {
+      database.run('DELETE FROM exchange_rates WHERE code = ?', [code]);
+    });
     return getState();
   }
 

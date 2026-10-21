@@ -1,32 +1,53 @@
 import { formatMoney } from '../../shared/money.cjs';
 import { equivalentText } from '../../shared/rates.cjs';
 
-export function Equivalents({ minor, rates, showMissing = false }) {
-  const usd = rates && rates.USD
-    ? equivalentText(minor, rates.USD, 'USD')
-    : (showMissing ? 'USD: Set exchange rates' : null);
-  const ksh = rates && rates.KES
-    ? equivalentText(minor, rates.KES, 'KES')
-    : (showMissing ? 'KSh: Set exchange rates' : null);
-  if (!usd && !ksh) return null;
+function shownEquivalent(minor, rate, code) {
+  const text = equivalentText(minor, rate, code);
+  if (!rate || text === 'Set exchange rates' || text === 'Too large to show') return text;
+  return `≈ ${text.replace(/, approximate$/, '')}`;
+}
+
+export function Equivalents({ minor, rates, showMissing = false, onSetRates, savedNote = false }) {
+  const usdRate = rates && rates.USD;
+  const kshRate = rates && rates.KES;
+  const usd = usdRate ? shownEquivalent(minor, usdRate, 'USD') : null;
+  const ksh = kshRate ? shownEquivalent(minor, kshRate, 'KES') : null;
+  const missing = (!usdRate || !kshRate) && showMissing;
+  if (!usd && !ksh && !missing) return null;
   return (
     <p className="equivalents">
-      {usd ? <span>{usd}</span> : null}
-      {ksh ? <span>{ksh}</span> : null}
+      {usd ? <span className="mono-num">{usd}</span> : null}
+      {ksh ? <span className="mono-num">{ksh}</span> : null}
+      {missing ? (
+        <button type="button" className="rate-setup" onClick={onSetRates}>
+          Set exchange rates
+          <span className="sr"> for {usdRate ? 'KSh' : kshRate ? 'USD' : 'USD and KSh'}</span>
+        </button>
+      ) : null}
+      {savedNote && (usd || ksh) ? (
+        <button type="button" className="equivalent-note" title="Converted with the rates saved in Settings. These figures are approximate.">
+          Saved rates
+        </button>
+      ) : null}
     </p>
   );
 }
 
-export function MoneyBlock({ label, minor, currency, rates, primary = false }) {
+export function MoneyFigure({ minor, currency, hero = false }) {
+  if (minor === null || minor === undefined) return <p className={hero ? 'hero-number' : 'metric-value'}>Unavailable</p>;
+  const text = formatMoney(minor, currency);
+  const negative = text.startsWith('-');
+  const body = negative ? text.slice(1) : text;
+  const symbol = currency.symbol;
+  const amount = body.startsWith(symbol) ? body.slice(symbol.length) : body;
+  if (!hero) {
+    return <p className={`metric-value mono-num${negative ? ' negative' : ''}`}>{negative ? '-' : ''}{body}</p>;
+  }
   return (
-    <div className={primary ? 'money-block primary' : 'money-block'}>
-      <div className="money-label">{label}</div>
-      {minor === null ? <div className="money-value">Unavailable</div> : (
-        <>
-          <div className="money-value">{formatMoney(minor, currency)}</div>
-          <Equivalents minor={minor} rates={rates} showMissing={primary} />
-        </>
-      )}
-    </div>
+    <p className={`hero-number mono-num${negative ? ' negative' : ''}`}>
+      {negative ? <span className="sign">-</span> : null}
+      <span className="currency">{symbol}</span>
+      {amount}
+    </p>
   );
 }

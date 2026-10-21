@@ -1,30 +1,19 @@
-import { useEffect } from 'react';
+import { Dialog } from './Dialog.jsx';
 
 export function ConfirmDialog({ title, message, confirmLabel, onConfirm, onCancel }) {
-  useEffect(() => {
-    function onKey(event) {
-      if (event.key === 'Escape') onCancel();
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onCancel]);
-
   return (
-    <div className="backdrop" onClick={onCancel}>
-      <div
-        className="dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="dialog-title"
-        onClick={(event) => event.stopPropagation()}
-      >
+    <Dialog titleId="dialog-title" onDismiss={onCancel}>
+      <div className="dialog-header">
         <h2 id="dialog-title">{title}</h2>
-        <p>{message}</p>
-        <div className="dialog-actions">
-          <button type="button" onClick={onCancel} autoFocus>Cancel</button>
-          <button type="button" className="danger" onClick={onConfirm}>{confirmLabel}</button>
-        </div>
+        <button type="button" className="close" onClick={onCancel} aria-label="Close">×</button>
       </div>
-    </div>
+      <div className="dialog-body">
+        <p>{message}</p>
+      </div>
+      <div className="dialog-footer">
+        <button type="button" className="button" onClick={onCancel} autoFocus>Cancel</button>
+        <button type="button" className="button danger" onClick={onConfirm}>{confirmLabel}</button>
+      </div>
+    </Dialog>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { todayISO } from '../shared/dates.cjs';
+import { EntryDialog } from './components/EntryDialog.jsx';
 import { Entries } from './pages/Entries.jsx';
 import { Overview } from './pages/Overview.jsx';
 import { Targets } from './pages/Targets.jsx';
@@ -16,7 +17,9 @@ export default function App() {
   const [state, setState] = useState(null);
   const [loadError, setLoadError] = useState('');
   const [page, setPage] = useState('overview');
-  const [focus, setFocus] = useState('');
+  const [draft, setDraft] = useState(null);
+  const [editingTargetId, setEditingTargetId] = useState(null);
+  const [toast, setToast] = useState('');
   const today = todayISO();
 
   useEffect(() => {
@@ -37,7 +40,7 @@ export default function App() {
     const stop = window.pesabuana.onMenuAction((action) => {
       if (PAGES.some(([id]) => id === action)) {
         setPage(action);
-        setFocus('');
+        setDraft(null);
         return;
       }
       if (action === 'backup' || action === 'restore') setPage('settings');
@@ -48,15 +51,29 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!toast) return undefined;
+    const timer = window.setTimeout(() => setToast(''), 3000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
   function commit(result) {
     if (!result) return { error: 'Something went wrong.' };
     if (result.state) setState(result.state);
     return result;
   }
 
-  function openEntries(which) {
-    setPage('entries');
-    setFocus(which);
+  function openEntry(kind, record = null) {
+    setDraft({ kind, record });
+  }
+
+  function editRow(row) {
+    openEntry(row.kind, row.record);
+  }
+
+  function editTarget(id) {
+    setPage('targets');
+    setEditingTargetId(id);
   }
 
   if (loadError) {
@@ -78,35 +95,70 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">pesabuana</div>
-        <nav aria-label="Main">
+        <div className="wordmark">pesabuana</div>
+        <nav className="navigation" aria-label="Main">
           {PAGES.map(([id, label]) => (
             <button
               type="button"
               key={id}
-              className={page === id ? 'nav-btn active' : 'nav-btn'}
               aria-current={page === id ? 'page' : undefined}
-              onClick={() => { setPage(id); setFocus(''); }}
+              onClick={() => { setPage(id); setDraft(null); }}
             >
               {label}
             </button>
           ))}
         </nav>
+        <span className="local-note"><span className="local-dot" aria-hidden="true" />Stored on this computer</span>
       </header>
-      <main className="main">
-        {state.notice ? <p className="banner sheet">{state.notice}</p> : null}
+      <main>
+        {state.notice ? <p className="banner">{state.notice}</p> : null}
         {page === 'overview' ? (
           <Overview
             state={state}
             today={today}
-            onAddSale={() => openEntries('sale')}
-            onAddExpense={() => openEntries('expense')}
+            onAddSale={() => openEntry('sale')}
+            onAddExpense={() => openEntry('expense')}
+            onOpenEntries={() => setPage('entries')}
+            onOpenTargets={() => setPage('targets')}
+            onSetRates={() => setPage('settings')}
+            onEditTarget={editTarget}
           />
         ) : null}
-        {page === 'entries' ? <Entries state={state} commit={commit} today={today} focus={focus} /> : null}
-        {page === 'targets' ? <Targets state={state} commit={commit} today={today} /> : null}
+        {page === 'entries' ? (
+          <Entries
+            state={state}
+            commit={commit}
+            today={today}
+            onAddSale={() => openEntry('sale')}
+            onAddExpense={() => openEntry('expense')}
+            onEdit={editRow}
+          />
+        ) : null}
+        {page === 'targets' ? (
+          <Targets
+            state={state}
+            commit={commit}
+            today={today}
+            onSetRates={() => setPage('settings')}
+            editingId={editingTargetId}
+            onEdit={editTarget}
+            onClearEdit={() => setEditingTargetId(null)}
+          />
+        ) : null}
         {page === 'settings' ? <Settings state={state} commit={commit} /> : null}
       </main>
+      {toast ? <div className="toast" role="status">{toast}</div> : null}
+      {draft ? (
+        <EntryDialog
+          kind={draft.kind}
+          record={draft.record}
+          currency={state.currency}
+          today={today}
+          commit={commit}
+          onClose={() => setDraft(null)}
+          onSaved={setToast}
+        />
+      ) : null}
     </div>
   );
 }
