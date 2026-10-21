@@ -1,0 +1,9 @@
+node_modules/
+dist/
+release/
+vendor/
+*.log
+npm-install.log
+*.sqlite
+*.sqlite-journal
+backups/

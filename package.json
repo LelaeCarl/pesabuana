@@ -1,0 +1,66 @@
+{
+  "name": "pesabuana",
+  "productName": "pesabuana",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Personal offline record of sales, costs, and profit.",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "start": "electron .",
+    "build": "vite build",
+    "app": "vite build && electron .",
+    "test": "node --test",
+    "icon": "node scripts/make-icon.cjs",
+    "dist": "npm run icon && vite build && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "sql.js": "1.15.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.1.2",
+    "electron": "33.4.11",
+    "electron-builder": "26.15.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "vite": "8.3.5"
+  },
+  "build": {
+    "appId": "com.pesabuana.desktop",
+    "productName": "pesabuana",
+    "electronDist": "node_modules/electron/dist",
+    "asar": true,
+    "npmRebuild": false,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "shared/**/*",
+      "build/icon.ico",
+      "node_modules/sql.js/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/sql.js/dist/sql-wasm.wasm"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico",
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "pesabuana",
+      "artifactName": "pesabuana-setup-${version}.exe"
+    }
+  }
+}
