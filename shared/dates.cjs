@@ -90,6 +90,36 @@ function formatRange(from, to) {
   return `${formatLongDate(from)} to ${formatLongDate(to)}`;
 }
 
+function comparisonWindows(preset, today) {
+  if (!isRealDate(today)) return null;
+  if (preset === 'week') {
+    const from = startOfWeek(today);
+    return {
+      kind: 'week',
+      label: 'Compared with last week',
+      current: { from, to: today },
+      previous: { from: addDays(from, -7), to: addDays(today, -7) },
+      note: null,
+    };
+  }
+  if (preset === 'month') {
+    const from = startOfMonth(today);
+    const day = parseISODate(today).getDate();
+    const previousFrom = startOfMonth(addDays(from, -1));
+    const previousDays = parseISODate(endOfMonth(previousFrom)).getDate();
+    const elapsed = Math.min(day, previousDays);
+    return {
+      kind: 'month',
+      label: 'Compared with last month',
+      current: { from, to: addDays(from, elapsed - 1) },
+      previous: { from: previousFrom, to: addDays(previousFrom, elapsed - 1) },
+      note: elapsed < day ? `Comparing the first ${elapsed} days of each month.` : null,
+      elapsed,
+    };
+  }
+  return null;
+}
+
 function presetRange(preset, today) {
   if (preset === 'today') return { from: today, to: today };
   if (preset === 'week') return { from: startOfWeek(today), to: endOfWeek(today) };
@@ -114,4 +144,5 @@ module.exports = {
   formatDayMonth,
   formatRange,
   presetRange,
+  comparisonWindows,
 };

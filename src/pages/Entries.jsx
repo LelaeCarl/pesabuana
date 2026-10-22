@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { formatMoney } from '../../shared/money.cjs';
 import { formatLongDate, presetRange } from '../../shared/dates.cjs';
+import { filterEntryRows, filteredExpenseTotal } from '../../shared/entries.cjs';
 import { summarize } from '../../shared/stats.cjs';
 import { ConfirmDialog } from '../components/ConfirmDialog.jsx';
 import { MoneyFigure } from '../components/MoneyBlock.jsx';
@@ -8,12 +9,21 @@ import { EntryTable } from './Overview.jsx';
 
 export function Entries({ state, commit, today, onAddSale, onAddExpense, onEdit }) {
   const [filter, setFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const [pending, setPending] = useState(null);
   const [pageError, setPageError] = useState('');
   const [summaryOpen, setSummaryOpen] = useState(false);
   const week = presetRange('week', today);
   const month = presetRange('month', today);
-  const rows = allRows(state).filter((row) => filter === 'all' || row.kind === filter);
+  const rows = filterEntryRows(allRows(state), { type: filter, category: categoryFilter });
+  const categoryOptions = categoryChoices(state);
+  const filtersActive = filter !== 'all' || categoryFilter !== 'all';
+  const shownExpenseTotal = filteredExpenseTotal(rows);
+  const emptyMessage = rows.length === 0 && filtersActive
+    ? (state.expenses.length === 0 && (filter === 'expense' || categoryFilter !== 'all')
+      ? 'No expenses yet.'
+      : (filter === 'expense' || categoryFilter !== 'all' ? 'No expenses match these filters.' : 'No entries match these filters.'))
+    : '';
   const totals = summarize(state.sales, state.expenses, '1990-01-01', '2100-12-31');
 
   async function remove() {
@@ -58,12 +68,27 @@ export function Entries({ state, commit, today, onAddSale, onAddExpense, onEdit 
             <button key={id} type="button" aria-pressed={filter === id} onClick={() => setFilter(id)}>{label}</button>
           ))}
         </div>
+        <label className="field category-filter">
+          Category
+          <select aria-label="Category" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+            <option value="all">All categories</option>
+            <option value="none">Uncategorised</option>
+            {categoryOptions.map((item) => (
+              <option key={item.id} value={String(item.id)}>{item.archived ? `${item.name} (archived)` : item.name}</option>
+            ))}
+          </select>
+        </label>
         <span className="subtitle">{rows.length ? `${formatLongDate(rows[rows.length - 1].date)} – ${formatLongDate(rows[0].date)} · RMB` : 'RMB'}</span>
       </div>
+      {filtersActive ? (
+        <p className="filtered-total">Filtered expenses <strong>{formatMoney(shownExpenseTotal, state.currency)}</strong></p>
+      ) : null}
       <EntryTable
         rows={rows}
         currency={state.currency}
         empty={state.sales.length + state.expenses.length === 0}
+        emptyMessage={emptyMessage}
+        showCategory
         onEdit={(row) => onEdit(row)}
         onDelete={(row) => setPending(row)}
       />
@@ -122,6 +147,17 @@ function TotalRow({ label, summary, currency }) {
   );
 }
 
+function categoryLabel(state, categoryId) {
+  if (categoryId == null) return 'Uncategorised';
+  const found = (state.categories || []).find((item) => item.id === categoryId);
+  return found ? found.name : 'Uncategorised';
+}
+
+function categoryChoices(state) {
+  const used = new Set(state.expenses.map((expense) => expense.categoryId).filter((id) => id != null));
+  return (state.categories || []).filter((item) => !item.archived || used.has(item.id));
+}
+
 function allRows(state) {
   const sales = state.sales.map((sale) => ({
     id: `sale-${sale.id}`,
@@ -139,6 +175,8 @@ function allRows(state) {
     recordId: expense.id,
     date: expense.entryDate,
     description: expense.description || 'No description',
+    category: categoryLabel(state, expense.categoryId),
+    categoryId: expense.categoryId,
     kind: 'expense',
     amount: expense.amount,
     direct: null,

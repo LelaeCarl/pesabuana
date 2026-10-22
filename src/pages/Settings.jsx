@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { formatStamp } from '../../shared/dates.cjs';
+import { CategoryNameDialog } from '../components/CategoryField.jsx';
 import { ConfirmDialog } from '../components/ConfirmDialog.jsx';
 
 export function Settings({ state, commit }) {
@@ -40,7 +41,7 @@ export function Settings({ state, commit }) {
       <div className="page-heading">
         <div>
           <h1>Settings</h1>
-          <p className="subtitle">Currency, backups, and your local records.</p>
+          <p className="subtitle">Currency, categories, backups, and your local records.</p>
         </div>
       </div>
       {error ? <p className="form-error" role="alert">{error}</p> : null}
@@ -48,6 +49,7 @@ export function Settings({ state, commit }) {
       <div className="settings-layout">
         <nav className="settings-aside" aria-label="Settings sections">
           <button type="button" className="link" onClick={() => scrollToSection('exchange-rates')}>Exchange rates</button>
+          <button type="button" className="link" onClick={() => scrollToSection('categories')}>Expense categories</button>
           <button type="button" className="link" onClick={() => scrollToSection('backups')}>Backups</button>
           <button type="button" className="link" onClick={() => scrollToSection('storage')}>Storage</button>
         </nav>
@@ -60,9 +62,14 @@ export function Settings({ state, commit }) {
               <RateEditor code="KES" suffix="KSh" rate={state.rates.KES} commit={commit} onError={setError} />
             </div>
           </section>
+          <section className="settings-card" id="categories">
+            <h2>Expense categories</h2>
+            <p>Categories describe expenses. They do not change profit.</p>
+            <CategoryManager state={state} commit={commit} onError={setError} />
+          </section>
           <section className="settings-card" id="backups">
             <h2>Backups</h2>
-            <p>A backup includes your entries, targets, and exchange rates.</p>
+            <p>A backup includes your entries, expense categories, targets, and exchange rates.</p>
             <div className="actions">
               <button type="button" className="button" onClick={backup}>Back up data</button>
               <button type="button" className="link" onClick={() => (hasRecords ? setConfirming(true) : restore())}>Restore backup</button>
@@ -78,7 +85,7 @@ export function Settings({ state, commit }) {
       {confirming ? (
         <ConfirmDialog
           title="Restore backup"
-          message="Replace all current records with a backup? You will choose the file next. This includes entries, expenses, targets, exchange rates, and the currency."
+          message="Replace all current records with a backup? You will choose the file next. This includes entries, expenses, categories, targets, exchange rates, and the currency."
           confirmLabel="Continue"
           onConfirm={restore}
           onCancel={() => setConfirming(false)}
@@ -147,5 +154,104 @@ function RateEditor({ code, suffix, rate, commit, onError }) {
       </div>
       {error ? <p className="form-error" role="alert">{error}</p> : null}
     </form>
+  );
+}
+
+function CategoryManager({ state, commit, onError }) {
+  const [editor, setEditor] = useState(null);
+  const [nameError, setNameError] = useState('');
+  const [restoreOffer, setRestoreOffer] = useState(null);
+  const categories = state.categories || [];
+  const active = categories.filter((item) => !item.archived);
+  const archived = categories.filter((item) => item.archived);
+
+  function closeEditor() {
+    setEditor(null);
+    setNameError('');
+    setRestoreOffer(null);
+  }
+
+  async function saveName(name) {
+    if (!editor) return;
+    const result = editor.mode === 'rename'
+      ? await commit(await window.pesabuana.renameCategory(editor.category.id, name))
+      : await window.pesabuana.addCategory(name);
+    if (result.needsRestore) {
+      setRestoreOffer(result);
+      setNameError('');
+      return;
+    }
+    if (result.error) {
+      setNameError(result.error);
+      onError('');
+      return;
+    }
+    if (editor.mode !== 'rename') commit(result);
+    closeEditor();
+  }
+
+  async function restoreOffered() {
+    const result = await commit(await window.pesabuana.restoreCategory(restoreOffer.categoryId));
+    if (result.error) {
+      setNameError(result.error);
+      return;
+    }
+    closeEditor();
+  }
+
+  async function archive(id) {
+    onError('');
+    const result = await commit(await window.pesabuana.archiveCategory(id));
+    if (result.error) onError(result.error);
+  }
+
+  async function restore(id) {
+    onError('');
+    const result = await commit(await window.pesabuana.restoreCategory(id));
+    if (result.error) onError(result.error);
+  }
+
+  return (
+    <>
+      <div className="actions">
+        <button type="button" className="button" onClick={() => { setNameError(''); setRestoreOffer(null); setEditor({ mode: 'add' }); }}>Add category</button>
+      </div>
+      <ul className="category-list">
+        {active.map((item) => (
+          <li key={item.id}>
+            <span title={item.name}>{item.name}</span>
+            <span className="actions">
+              <button type="button" className="row-action" onClick={() => { setNameError(''); setEditor({ mode: 'rename', category: item }); }}>Rename</button>
+              <button type="button" className="row-action" onClick={() => archive(item.id)}>Archive</button>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {archived.length ? (
+        <>
+          <h3 className="section-title">Archived</h3>
+          <ul className="category-list">
+            {archived.map((item) => (
+              <li key={item.id}>
+                <span title={item.name}>{item.name}</span>
+                <button type="button" className="row-action" onClick={() => restore(item.id)}>Restore</button>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {editor ? (
+        <CategoryNameDialog
+          title={editor.mode === 'rename' ? 'Rename category' : 'Add category'}
+          initial={editor.mode === 'rename' ? editor.category.name : ''}
+          submitLabel={editor.mode === 'rename' ? 'Save name' : 'Save category'}
+          error={nameError}
+          restoreName={restoreOffer ? restoreOffer.name : ''}
+          onCancel={closeEditor}
+          onRestore={restoreOffered}
+          onSubmit={saveName}
+        />
+      ) : null}
+    </>
   );
 }

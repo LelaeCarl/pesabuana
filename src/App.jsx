@@ -20,7 +20,24 @@ export default function App() {
   const [draft, setDraft] = useState(null);
   const [editingTargetId, setEditingTargetId] = useState(null);
   const [toast, setToast] = useState('');
-  const today = todayISO();
+  const [today, setToday] = useState(todayISO);
+
+  useEffect(() => {
+    function refresh() {
+      setToday(todayISO());
+    }
+    function onVisible() {
+      if (document.visibilityState === 'visible') refresh();
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', refresh);
+    const timer = window.setInterval(refresh, 60000);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', refresh);
+      window.clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -153,6 +170,7 @@ export default function App() {
           kind={draft.kind}
           record={draft.record}
           currency={state.currency}
+          categories={state.categories || []}
           today={today}
           commit={commit}
           onClose={() => setDraft(null)}

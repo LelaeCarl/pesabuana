@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { formatMoney } from '../../shared/money.cjs';
 import { formatLongDate, formatRange, presetRange } from '../../shared/dates.cjs';
-import { summarize, rangeError, buildChart, evaluateTarget } from '../../shared/stats.cjs';
+import { summarize, rangeError, buildChart, evaluateTarget, buildComparison, formatTenthsPercent } from '../../shared/stats.cjs';
 import { Equivalents, MoneyFigure } from '../components/MoneyBlock.jsx';
 import { ProfitChart } from '../components/ProfitChart.jsx';
 import { TargetCard } from '../components/TargetCard.jsx';
@@ -71,6 +71,9 @@ export function Overview({ state, today, onAddSale, onAddExpense, onOpenEntries,
                   <Metric label="Gross profit" minor={summary.gross} state={state} onSetRates={onSetRates} />
                   <Metric label="Other expenses" minor={summary.otherExpenses} state={state} onSetRates={onSetRates} />
                 </div>
+              )}
+              {summary.overflow || (preset !== 'week' && preset !== 'month') ? null : (
+                <ComparisonBlock state={state} preset={preset} today={today} />
               )}
               {series ? (
                 <ProfitChart
@@ -159,11 +162,11 @@ function recentRows(state, from, to) {
   return [...sales, ...expenses].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id)).slice(0, 5);
 }
 
-export function EntryTable({ rows, currency, empty, onEdit, onDelete }) {
+export function EntryTable({ rows, currency, empty, emptyMessage, showCategory, onEdit, onDelete }) {
   if (rows.length === 0) {
     return (
       <div className="table-surface">
-        <p className="table-empty">{empty ? 'No entries yet. Your saved sales and expenses will appear here.' : 'No entries in this period.'}</p>
+        <p className="table-empty">{emptyMessage || (empty ? 'No entries yet. Your saved sales and expenses will appear here.' : 'No entries in this period.')}</p>
       </div>
     );
   }
@@ -175,6 +178,7 @@ export function EntryTable({ rows, currency, empty, onEdit, onDelete }) {
             <th>Date</th>
             <th>Description</th>
             <th>Type</th>
+            {showCategory ? <th>Category</th> : null}
             <th className="num">Amount (RMB)</th>
             <th className="num">Direct cost</th>
             <th className="num">Profit impact</th>
@@ -187,6 +191,7 @@ export function EntryTable({ rows, currency, empty, onEdit, onDelete }) {
               <td className="entry-date">{formatShort(row.date)}</td>
               <td className="entry-description">{row.description}</td>
               <td><span className={row.kind === 'expense' ? 'entry-type expense' : 'entry-type'}>{row.kind === 'sale' ? 'Sale' : 'Expense'}</span></td>
+              {showCategory ? <td className="entry-category" title={row.category || ''}>{row.kind === 'expense' ? (row.category || 'Uncategorised') : '—'}</td> : null}
               <td className="num">{formatAmount(row.amount, currency)}</td>
               <td className="num">{row.direct === null ? '—' : formatAmount(row.direct, currency)}</td>
               <td className="num">{formatAmount(row.impact, currency)}</td>
@@ -202,6 +207,49 @@ export function EntryTable({ rows, currency, empty, onEdit, onDelete }) {
       </table>
     </div>
   );
+}
+
+function ComparisonBlock({ state, preset, today }) {
+  const comparison = buildComparison(state.sales, state.expenses, preset, today);
+  if (!comparison || comparison.overflow) return null;
+  return (
+    <div className="comparison">
+      <h2>{comparison.label}</h2>
+      <p className="subtitle">{formatRange(comparison.current.from, comparison.current.to)} compared with {formatRange(comparison.previous.from, comparison.previous.to)}</p>
+      {comparison.note ? <p className="subtitle">{comparison.note}</p> : null}
+      <table>
+        <thead>
+          <tr>
+            <th>Measure</th>
+            <th className="num">Current</th>
+            <th className="num">Previous</th>
+            <th className="num">Change</th>
+          </tr>
+        </thead>
+        <tbody>
+          {comparison.rows.map((row) => (
+            <tr key={row.label}>
+              <th scope="row">{row.label}</th>
+              <td className="num">{formatMoney(row.current, state.currency)}</td>
+              <td className="num">{formatMoney(row.previous, state.currency)}</td>
+              <td className="num">{changeText(row.change, state.currency)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {comparison.previousEmpty ? <p className="subtitle">No entries in previous period.</p> : null}
+    </div>
+  );
+}
+
+function changeText(change, currency) {
+  if (change.basis === 'none') return 'No change';
+  const money = change.amount > 0 ? `+${formatMoney(change.amount, currency)}` : formatMoney(change.amount, currency);
+  if (change.basis !== 'percent' || change.percentTenths == null) return money;
+  const percent = change.percentTenths > 0
+    ? `+${formatTenthsPercent(change.percentTenths)}`
+    : formatTenthsPercent(change.percentTenths);
+  return `${money} (${percent})`;
 }
 
 function formatShort(iso) {

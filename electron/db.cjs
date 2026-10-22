@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { getCurrency } = require('../shared/currencies.cjs');
+const { BUILTIN_CATEGORIES, normalizeCategoryName } = require('../shared/categories.cjs');
 const { localStamp } = require('../shared/dates.cjs');
 const { PRESET_TARGETS } = require('../shared/presets.cjs');
 const { parseRate, rateFromText } = require('../shared/rates.cjs');
@@ -160,14 +161,25 @@ function createApi(initialDatabase, filePath, initialNotice) {
     };
   }
 
-  function mapExpense(row) {
-    return {
-      id: row.id,
-      entryDate: row.entry_date,
-      description: row.description,
-      amount: row.amount,
-    };
-  }
+function mapExpense(row) {
+  return {
+    id: row.id,
+    entryDate: row.entry_date,
+    description: row.description,
+    amount: row.amount,
+    categoryId: row.category_id == null ? null : row.category_id,
+  };
+}
+
+function mapCategory(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    archived: Number(row.archived) === 1,
+    sortOrder: row.sort_order,
+    builtinKey: row.builtin_key || null,
+  };
+}
 
   function mapTarget(row) {
     return {
@@ -199,6 +211,9 @@ function createApi(initialDatabase, filePath, initialNotice) {
     const currency = row ? getCurrency(row.currency_code) : null;
     const sales = all('SELECT * FROM sales ORDER BY entry_date DESC, id DESC').map(mapSale);
     const expenses = all('SELECT * FROM expenses ORDER BY entry_date DESC, id DESC').map(mapExpense);
+    const categories = tableNames(database).has('categories')
+      ? all('SELECT * FROM categories').map(mapCategory).sort(compareCategories)
+      : [];
     const targets = all('SELECT * FROM targets').map(mapTarget)
       .sort((a, b) => a.deadline.localeCompare(b.deadline) || a.id - b.id);
     return {
@@ -211,8 +226,9 @@ function createApi(initialDatabase, filePath, initialNotice) {
         targets: blocked.targets,
       } : null,
       sales,
-      expenses,
-      targets,
+    expenses,
+    categories,
+    targets,
       rates: readRates(),
       databaseFile: filePath,
       notice,
@@ -276,15 +292,34 @@ function createApi(initialDatabase, filePath, initialNotice) {
     return getState();
   }
 
+  function categoryById(id) {
+    if (!Number.isInteger(id) || id <= 0) return null;
+    return get('SELECT * FROM categories WHERE id = ?', [id]);
+  }
+
+  function assignCategory(categoryId, { required, allowArchived }) {
+    if (categoryId == null) {
+      if (required) throw new Error('Choose a category.');
+      return null;
+    }
+    const row = categoryById(categoryId);
+    if (!row) throw new Error('Choose a category.');
+    if (Number(row.archived) === 1 && !allowArchived) {
+      throw new Error('That category is archived. Choose another category.');
+    }
+    return row.id;
+  }
+
   function addExpense(input) {
     const currency = requireReady();
     const result = validateExpense(input);
     if (!result.ok) throw new Error(result.error);
     checkAmount(result.value.amount, currency, 'Expense amount');
+    const categoryId = assignCategory(result.value.categoryId, { required: true, allowArchived: false });
     saveAfter(() => {
       database.run(
-        'INSERT INTO expenses (entry_date, description, amount) VALUES (?, ?, ?)',
-        [result.value.entryDate, result.value.description, result.value.amount],
+        'INSERT INTO expenses (entry_date, description, amount, category_id) VALUES (?, ?, ?, ?)',
+        [result.value.entryDate, result.value.description, result.value.amount, categoryId],
       );
     });
     return getState();
@@ -295,17 +330,79 @@ function createApi(initialDatabase, filePath, initialNotice) {
     if (!input || !Number.isInteger(input.id) || input.id <= 0) {
       throw new Error('That expense was not found.');
     }
-    if (!get('SELECT id FROM expenses WHERE id = ?', [input.id])) {
-      throw new Error('That expense was not found.');
-    }
-    const result = validateExpense(input);
+    const existing = get('SELECT id, category_id FROM expenses WHERE id = ?', [input.id]);
+    if (!existing) throw new Error('That expense was not found.');
+    const result = validateExpense(input, { allowUncategorised: true });
     if (!result.ok) throw new Error(result.error);
     checkAmount(result.value.amount, currency, 'Expense amount');
+    const requested = result.value.categoryId;
+    const categoryId = assignCategory(requested, {
+      required: false,
+      allowArchived: requested != null && requested === existing.category_id,
+    });
     saveAfter(() => {
       database.run(
-        'UPDATE expenses SET entry_date = ?, description = ?, amount = ? WHERE id = ?',
-        [result.value.entryDate, result.value.description, result.value.amount, input.id],
+        'UPDATE expenses SET entry_date = ?, description = ?, amount = ?, category_id = ? WHERE id = ?',
+        [result.value.entryDate, result.value.description, result.value.amount, categoryId, input.id],
       );
+    });
+    return getState();
+  }
+
+  function addCategory(name) {
+    requireReady();
+    const parsed = normalizeCategoryName(name);
+    if (!parsed.ok) throw new Error(parsed.error);
+    const existing = get('SELECT * FROM categories WHERE name_key = ?', [parsed.value.key]);
+    if (existing && Number(existing.archived) === 1) {
+      return { needsRestore: true, categoryId: existing.id, name: existing.name };
+    }
+    if (existing) throw new Error('That category already exists.');
+    let categoryId = null;
+    saveAfter(() => {
+      const order = get('SELECT COALESCE(MAX(sort_order), 0) AS n FROM categories');
+      database.run(
+        'INSERT INTO categories (name, name_key, archived, sort_order, builtin_key) VALUES (?, ?, 0, ?, NULL)',
+        [parsed.value.name, parsed.value.key, Number(order.n) + 1],
+      );
+      categoryId = get('SELECT last_insert_rowid() AS id').id;
+    });
+    return { state: getState(), categoryId };
+  }
+
+  function renameCategory(id, name) {
+    requireReady();
+    const parsed = normalizeCategoryName(name);
+    if (!parsed.ok) throw new Error(parsed.error);
+    const current = categoryById(id);
+    if (!current) throw new Error('That category is no longer available.');
+    const clash = get('SELECT id FROM categories WHERE name_key = ? AND id <> ?', [parsed.value.key, current.id]);
+    if (clash) throw new Error('That category already exists.');
+    saveAfter(() => {
+      database.run(
+        'UPDATE categories SET name = ?, name_key = ? WHERE id = ?',
+        [parsed.value.name, parsed.value.key, current.id],
+      );
+    });
+    return getState();
+  }
+
+  function archiveCategory(id) {
+    requireReady();
+    const current = categoryById(id);
+    if (!current) throw new Error('That category is no longer available.');
+    saveAfter(() => {
+      database.run('UPDATE categories SET archived = 1 WHERE id = ?', [current.id]);
+    });
+    return getState();
+  }
+
+  function restoreCategory(id) {
+    requireReady();
+    const current = categoryById(id);
+    if (!current) throw new Error('That category is no longer available.');
+    saveAfter(() => {
+      database.run('UPDATE categories SET archived = 0 WHERE id = ?', [current.id]);
     });
     return getState();
   }
@@ -456,6 +553,10 @@ function createApi(initialDatabase, filePath, initialNotice) {
     addExpense,
     updateExpense,
     deleteExpense,
+    addCategory,
+    renameCategory,
+    archiveCategory,
+    restoreCategory,
     addTarget,
     updateTarget,
     deleteTarget,
@@ -532,6 +633,98 @@ function foreignAccount(database) {
   return { code, sales, expenses, targets };
 }
 
+function columnNames(database, table) {
+  return queryAll(database, `PRAGMA table_info(${table})`).map((row) => row.name);
+}
+
+function seedCategories(database) {
+  if (metaValue(database, 'categories_seeded') === '1') return;
+  database.run('BEGIN');
+  try {
+    BUILTIN_CATEGORIES.forEach((item, index) => {
+      const existing = queryOne(database, 'SELECT id FROM categories WHERE builtin_key = ?', [item.key]);
+      if (existing) return;
+      database.run(
+        'INSERT INTO categories (name, name_key, archived, sort_order, builtin_key) VALUES (?, ?, 0, ?, ?)',
+        [item.name, item.name.toLowerCase(), index + 1, item.key],
+      );
+    });
+    setMeta(database, 'categories_seeded', '1');
+    database.run('COMMIT');
+  } catch (error) {
+    try { database.run('ROLLBACK'); } catch (rollbackError) { console.error(rollbackError); }
+    throw error;
+  }
+}
+
+function migrateCategories(database) {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      name_key TEXT NOT NULL UNIQUE,
+      archived INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL,
+      builtin_key TEXT UNIQUE
+    );
+  `);
+  if (!columnNames(database, 'expenses').includes('category_id')) {
+    database.exec('ALTER TABLE expenses ADD COLUMN category_id INTEGER');
+  }
+  seedCategories(database);
+  setMeta(database, 'schema', '3');
+}
+
+function compareCategories(left, right) {
+  const leftOther = left.builtinKey === 'other' ? 1 : 0;
+  const rightOther = right.builtinKey === 'other' ? 1 : 0;
+  if (leftOther !== rightOther) return leftOther - rightOther;
+  if (left.sortOrder !== right.sortOrder) return left.sortOrder - right.sortOrder;
+  return left.id - right.id;
+}
+
+function columnNames(database, table) {
+  return queryAll(database, `PRAGMA table_info(${table})`).map((row) => row.name);
+}
+
+function seedCategories(database) {
+  if (metaValue(database, 'categories_seeded') === '1') return;
+  database.run('BEGIN');
+  try {
+    BUILTIN_CATEGORIES.forEach((item, index) => {
+      const existing = queryOne(database, 'SELECT id FROM categories WHERE builtin_key = ?', [item.key]);
+      if (existing) return;
+      database.run(
+        'INSERT INTO categories (name, name_key, archived, sort_order, builtin_key) VALUES (?, ?, 0, ?, ?)',
+        [item.name, item.name.toLowerCase(), index + 1, item.key],
+      );
+    });
+    setMeta(database, 'categories_seeded', '1');
+    database.run('COMMIT');
+  } catch (error) {
+    try { database.run('ROLLBACK'); } catch (rollbackError) { /* already closed */ }
+    throw error;
+  }
+}
+
+function migrateCategories(database) {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      name_key TEXT NOT NULL UNIQUE,
+      archived INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL,
+      builtin_key TEXT UNIQUE
+    );
+  `);
+  if (!columnNames(database, 'expenses').includes('category_id')) {
+    database.exec('ALTER TABLE expenses ADD COLUMN category_id INTEGER');
+  }
+  seedCategories(database);
+  setMeta(database, 'schema', '3');
+}
+
 function seedPresets(database) {
   if (metaValue(database, 'presets_seeded') === '1') return;
   database.run('BEGIN');
@@ -570,7 +763,16 @@ const V2_TABLES = `
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     entry_date TEXT NOT NULL,
     description TEXT NOT NULL,
-    amount INTEGER NOT NULL
+    amount INTEGER NOT NULL,
+    category_id INTEGER
+  );
+  CREATE TABLE categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL UNIQUE,
+    archived INTEGER NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL,
+    builtin_key TEXT UNIQUE
   );
   CREATE TABLE targets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -592,9 +794,10 @@ const V2_TABLES = `
 
 function createFresh(database) {
   database.exec(V2_TABLES);
-  setMeta(database, 'schema', '2');
+  setMeta(database, 'schema', '3');
   database.run("INSERT INTO settings (id, currency_code) VALUES (1, 'CNY')");
   seedPresets(database);
+  seedCategories(database);
 }
 
 function migrateV1(database) {
@@ -639,10 +842,19 @@ function ensureSchema(database) {
     return 'created';
   }
   const version = metaValue(database, 'schema');
-  if (version === '2') return 'ready';
+  if (version === '3') {
+    if (metaValue(database, 'categories_seeded') === '1') return 'ready';
+    seedCategories(database);
+    return 'migrated';
+  }
+  if (version === '2') {
+    migrateCategories(database);
+    return 'migrated';
+  }
   if (version === '1') {
     if (foreignAccount(database)) return 'blocked';
     migrateV1(database);
+    migrateCategories(database);
     return 'migrated';
   }
   throw new Error('This data file uses an unknown version.');
@@ -658,7 +870,7 @@ function isPesabuanaFile(database) {
     statement = database.prepare("SELECT value FROM meta WHERE key = 'schema'");
     if (!statement.step()) return false;
     const value = statement.getAsObject().value;
-    return value === '1' || value === '2';
+    return value === '1' || value === '2' || value === '3';
   } catch (error) {
     return false;
   } finally {

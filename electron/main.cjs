@@ -159,6 +159,14 @@ function registerHandlers() {
   handle('add-expense', (_event, input) => ({ state: database.addExpense(input) }));
   handle('update-expense', (_event, input) => ({ state: database.updateExpense(input) }));
   handle('delete-expense', (_event, id) => ({ state: database.deleteExpense(id) }));
+  handle('add-category', (_event, name) => {
+    const result = database.addCategory(name);
+    if (result.needsRestore) return result;
+    return { state: result.state, categoryId: result.categoryId };
+  });
+  handle('rename-category', (_event, input) => ({ state: database.renameCategory(input && input.id, input && input.name) }));
+  handle('archive-category', (_event, id) => ({ state: database.archiveCategory(id) }));
+  handle('restore-category', (_event, id) => ({ state: database.restoreCategory(id) }));
   handle('add-target', (_event, input) => ({ state: database.addTarget(input) }));
   handle('update-target', (_event, input) => ({ state: database.updateTarget(input) }));
   handle('delete-target', (_event, id) => ({ state: database.deleteTarget(id) }));

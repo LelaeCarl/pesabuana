@@ -7,6 +7,14 @@ const { openDatabase } = require('../electron/db.cjs');
 const { summarize, evaluateTarget } = require('../shared/stats.cjs');
 const { validateSale, validateTarget } = require('../shared/validate.cjs');
 
+function otherCategory(database) {
+  return database.getState().categories.find((item) => item.builtinKey === 'other');
+}
+
+function addExpense(database, input) {
+  database.addExpense({ ...input, categoryId: otherCategory(database).id });
+}
+
 async function tempDb() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'pesabuana-'));
   const file = path.join(directory, 'pesabuana.sqlite');
@@ -114,7 +122,7 @@ test('a saved entry is still there after the database is closed and opened', asy
     saleAmount: 150000,
     directCost: 40000,
   });
-  database.addExpense({
+  addExpense(database, {
     entryDate: '2026-10-22',
     description: 'Transport',
     amount: 2550,
@@ -142,7 +150,7 @@ test('backup and restore keep entries, targets, and rates', async () => {
     saleAmount: 100000,
     directCost: 70000,
   });
-  database.addExpense({
+  addExpense(database, {
     entryDate: '2026-10-22',
     description: 'Supplies',
     amount: 5000,
@@ -253,7 +261,7 @@ test('changing a rate leaves stored amounts and target progress unchanged', asyn
     saleAmount: 100000,
     directCost: 70000,
   });
-  database.addExpense({ entryDate: '2026-10-22', description: 'Supplies', amount: 5000 });
+  addExpense(database, { entryDate: '2026-10-22', description: 'Supplies', amount: 5000 });
   const first = database.getState();
   const before = evaluateTarget(first.targets[0], first.sales, first.expenses, '2026-10-22');
   database.setRate('USD', '0.14');

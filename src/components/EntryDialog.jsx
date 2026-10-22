@@ -1,17 +1,23 @@
 import { useState } from 'react';
 import { parseMoney, formatMoney } from '../../shared/money.cjs';
+import { CategoryField, CategoryNameDialog } from './CategoryField.jsx';
 import { Dialog } from './Dialog.jsx';
 
-export function EntryDialog({ kind, record, currency, today, commit, onClose, onSaved }) {
+export function EntryDialog({ kind, record, currency, categories = [], today, commit, onClose, onSaved }) {
   const editing = Boolean(record);
+  const initialCategory = record && kind === 'expense' ? (record.categoryId ?? null) : '';
   const [entryDate, setEntryDate] = useState(record ? record.entryDate : today);
   const [description, setDescription] = useState(record ? record.description : '');
   const [saleAmount, setSaleAmount] = useState(record && kind === 'sale' ? moneyText(record.saleAmount, currency) : '');
   const [directCost, setDirectCost] = useState(record && kind === 'sale' ? moneyText(record.directCost, currency) : '');
   const [amount, setAmount] = useState(record && kind === 'expense' ? moneyText(record.amount, currency) : '');
+  const [categoryId, setCategoryId] = useState(initialCategory);
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [discarding, setDiscarding] = useState(false);
+  const [naming, setNaming] = useState(false);
+  const [nameError, setNameError] = useState('');
+  const [restoreOffer, setRestoreOffer] = useState(null);
   const initial = {
     entryDate: record ? record.entryDate : today,
     description: record ? record.description : '',
@@ -23,7 +29,8 @@ export function EntryDialog({ kind, record, currency, today, commit, onClose, on
     || description !== initial.description
     || saleAmount !== initial.saleAmount
     || directCost !== initial.directCost
-    || amount !== initial.amount;
+    || amount !== initial.amount
+    || categoryId !== initialCategory;
 
   function requestClose() {
     if (dirty) setDiscarding(true);
@@ -71,13 +78,14 @@ export function EntryDialog({ kind, record, currency, today, commit, onClose, on
     const parsed = amount.trim() ? parseMoney(amount, currency.exponent) : null;
     if (parsed && !parsed.ok) next.amount = parsed.error;
     if (parsed && parsed.ok && parsed.minor === 0) next.amount = 'Enter an expense amount above zero.';
+    if (categoryId === '') next.category = 'Choose a category.';
     if (Object.keys(next).length) {
       setErrors(next);
       return;
     }
     setBusy(true);
     setErrors({});
-    const payload = { entryDate, description, amount: parsed.minor };
+    const payload = { entryDate, description, amount: parsed.minor, categoryId };
     try {
       const result = await commit(await (
         editing
@@ -100,6 +108,7 @@ export function EntryDialog({ kind, record, currency, today, commit, onClose, on
   const preview = grossPreview(saleAmount, directCost, currency);
 
   return (
+    <>
     <Dialog titleId="entry-heading" onDismiss={requestClose}>
       <form onSubmit={onSubmit}>
         <div className="dialog-header">
@@ -150,19 +159,29 @@ export function EntryDialog({ kind, record, currency, today, commit, onClose, on
               </label>
             </div>
           ) : (
-            <label className="field">
-              Amount (RMB)
-              <input
-                inputMode="decimal"
-                autoComplete="off"
-                aria-invalid={errors.amount ? 'true' : undefined}
-                aria-describedby={errors.amount ? 'expense-amount-error' : undefined}
-                value={amount}
-                placeholder="0.00"
-                onChange={(event) => setAmount(event.target.value)}
+            <>
+              <label className="field">
+                Amount (RMB)
+                <input
+                  inputMode="decimal"
+                  autoComplete="off"
+                  aria-invalid={errors.amount ? 'true' : undefined}
+                  aria-describedby={errors.amount ? 'expense-amount-error' : undefined}
+                  value={amount}
+                  placeholder="0.00"
+                  onChange={(event) => setAmount(event.target.value)}
+                />
+                {errors.amount ? <span id="expense-amount-error" className="form-error" role="alert">{errors.amount}</span> : null}
+              </label>
+              <CategoryField
+                categories={categories}
+                value={categoryId}
+                allowUncategorised={editing && record.categoryId == null}
+                error={errors.category}
+                onChange={setCategoryId}
+                onCreate={() => { setNameError(''); setRestoreOffer(null); setNaming(true); }}
               />
-              {errors.amount ? <span id="expense-amount-error" className="form-error" role="alert">{errors.amount}</span> : null}
-            </label>
+            </>
           )}
           {kind === 'sale' ? (
             <div className="form-section-note">
@@ -170,7 +189,7 @@ export function EntryDialog({ kind, record, currency, today, commit, onClose, on
               <strong>{preview === null ? 'Enter both amounts' : formatMoney(preview, currency)}</strong>
             </div>
           ) : (
-            <p className="form-section-note">Other expenses are subtracted only from net profit. They are not a direct cost.</p>
+            <p className="form-section-note">Other expenses are subtracted only from net profit. If shipping, packaging, or another cost is already included in a sale's direct cost, do not enter it again.</p>
           )}
           {errors.form ? <p className="form-error" role="alert">{errors.form}</p> : null}
           {discarding ? (
@@ -189,6 +208,43 @@ export function EntryDialog({ kind, record, currency, today, commit, onClose, on
         </div>
       </form>
     </Dialog>
+    {naming ? (
+      <CategoryNameDialog
+        title="Add category"
+        submitLabel="Save category"
+        error={nameError}
+        restoreName={restoreOffer ? restoreOffer.name : ''}
+        onCancel={() => { setNaming(false); setRestoreOffer(null); setNameError(''); }}
+        onRestore={async () => {
+          const result = await commit(await window.pesabuana.restoreCategory(restoreOffer.categoryId));
+          if (result.error) {
+            setNameError(result.error);
+            return;
+          }
+          setCategoryId(restoreOffer.categoryId);
+          setNaming(false);
+          setRestoreOffer(null);
+        }}
+        onSubmit={async (name) => {
+          const result = await window.pesabuana.addCategory(name);
+          if (result.needsRestore) {
+            setRestoreOffer(result);
+            setNameError('');
+            return;
+          }
+          if (result.error) {
+            setNameError(result.error);
+            return;
+          }
+          commit(result);
+          setCategoryId(result.categoryId);
+          setNaming(false);
+          setRestoreOffer(null);
+          setNameError('');
+        }}
+      />
+    ) : null}
+    </>
   );
 }
 

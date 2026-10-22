@@ -1,5 +1,6 @@
 const {
   addDays,
+  comparisonWindows,
   daysBetweenInclusive,
   startOfWeek,
   isRealDate,
@@ -49,6 +50,46 @@ function summarize(sales, expenses, from, to) {
     saleCount,
     expenseCount,
     overflow: state.overflow,
+  };
+}
+
+function metricChange(current, previous) {
+  if (!Number.isSafeInteger(current) || !Number.isSafeInteger(previous)) return { overflow: true };
+  const amount = current - previous;
+  if (!Number.isSafeInteger(amount)) return { overflow: true };
+  if (current === 0 && previous === 0) {
+    return { amount: 0, percentTenths: null, basis: 'none' };
+  }
+  if (previous > 0) {
+    const percentTenths = divRound(BigInt(amount) * 1000n, BigInt(previous));
+    if (percentTenths === null) return { overflow: true };
+    return { amount, percentTenths, basis: 'percent' };
+  }
+  return { amount, percentTenths: null, basis: 'amount' };
+}
+
+function buildComparison(sales, expenses, preset, today) {
+  const windows = comparisonWindows(preset, today);
+  if (!windows) return null;
+  const current = summarize(sales, expenses, windows.current.from, windows.current.to);
+  const previous = summarize(sales, expenses, windows.previous.from, windows.previous.to);
+  if (current.overflow || previous.overflow) return { overflow: true, ...windows };
+  const rows = [
+    ['Sales', current.saleTotal, previous.saleTotal],
+    ['Other expenses', current.otherExpenses, previous.otherExpenses],
+    ['Net profit', current.net, previous.net],
+  ].map(([label, now, then]) => ({
+    label,
+    current: now,
+    previous: then,
+    change: metricChange(now, then),
+  }));
+  if (rows.some((row) => row.change.overflow)) return { overflow: true, ...windows };
+  return {
+    overflow: false,
+    ...windows,
+    previousEmpty: previous.saleCount + previous.expenseCount === 0,
+    rows,
   };
 }
 
@@ -194,6 +235,8 @@ function evaluateTarget(target, sales, expenses, today) {
 module.exports = {
   MAX_RANGE_DAYS,
   summarize,
+  metricChange,
+  buildComparison,
   rangeError,
   buildChart,
   formatTenthsPercent,

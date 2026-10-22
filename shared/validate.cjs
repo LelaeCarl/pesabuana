@@ -46,7 +46,15 @@ function validateSale(input) {
   });
 }
 
-function validateExpense(input) {
+function validateCategorySelection(value, required) {
+  if (value === null || value === undefined || value === '') {
+    return required ? fail('Choose a category.') : ok(null);
+  }
+  if (!Number.isInteger(value) || value <= 0) return fail('Choose a category.');
+  return ok(value);
+}
+
+function validateExpense(input, options = {}) {
   if (!input || typeof input !== 'object') return fail('Enter the expense details.');
   const entryDate = validateDate(input.entryDate);
   if (!entryDate.ok) return entryDate;
@@ -55,10 +63,13 @@ function validateExpense(input) {
   if (!isSafeNonNegative(input.amount) || input.amount === 0) {
     return fail('Enter an expense amount above zero.');
   }
+  const category = validateCategorySelection(input.categoryId, !options.allowUncategorised);
+  if (!category.ok) return category;
   return ok({
     entryDate: entryDate.value,
     description: description.value,
     amount: input.amount,
+    categoryId: category.value,
   });
 }
 

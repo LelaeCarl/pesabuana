@@ -14,7 +14,15 @@ On this computer that is `C:\Users\Sage\AppData\Roaming\pesabuana\pesabuana.sqli
 
 To move records to another laptop, open Settings and choose Back up data. Copy that file yourself. On the other computer, install pesabuana, open Settings, and choose Restore backup. Confirm before it replaces the account there.
 
-A backup includes entries, expenses, targets, the currency, and exchange rates with the time they were last changed.
+A backup includes entries, expenses, expense categories, targets, the currency, and exchange rates with the time they were last changed.
+
+## Week and month comparisons
+
+On Overview, This week and This month show a comparison under the main figures. This week compares Monday through today with the same weekdays last week. This month compares the first of the month through today with the same number of days last month. If last month is shorter, both sides use that shorter length, and the comparison says so. The large profit figure still covers the whole selected week or month. Today and Custom do not show the comparison. Amounts stay in RMB.
+
+## Expense categories
+
+A new expense needs a category. The built-in list includes Taxes as a label only. The app does not calculate tax. You can add, rename, archive, and restore categories in Settings. Existing expenses without a category stay Uncategorised until you choose one. Archiving hides a category from new expenses and keeps the old records.
 
 ## Exchange rates
 
