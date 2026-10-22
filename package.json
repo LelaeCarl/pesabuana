@@ -1,7 +1,7 @@
 {
   "name": "pesabuana",
   "productName": "pesabuana",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "Personal offline record of sales, costs, and profit.",
   "main": "electron/main.cjs",
@@ -11,7 +11,7 @@
     "build": "vite build",
     "app": "vite build && electron .",
     "test": "node --test",
-    "icon": "node scripts/make-icon.cjs",
+    "icon": "electron scripts/make-icon.cjs",
     "dist": "npm run icon && vite build && electron-builder --win nsis"
   },
   "dependencies": {
@@ -60,6 +60,8 @@
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "pesabuana",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
       "artifactName": "pesabuana-setup-${version}.exe"
     }
   }
