@@ -14,7 +14,11 @@ On this computer that is `C:\Users\Sage\AppData\Roaming\pesabuana\pesabuana.sqli
 
 To move records to another laptop, open Settings and choose Back up data. Copy that file yourself. On the other computer, install pesabuana, open Settings, and choose Restore backup. Confirm before it replaces the account there.
 
-A backup includes entries, expenses, expense categories, targets, the currency, and exchange rates with the time they were last changed.
+A backup includes entries, expenses, expense categories, money coming in, targets, the currency, and exchange rates with the time they were last changed.
+
+## Money coming in
+
+Incoming is a separate list for money you expect or are owed. It can be a customer payment, a loan repayment, or other expected money. Recording it does not create a sale or an expense, and it does not change profit, charts, comparisons, or targets. Record a real sale in Entries when the sale itself should be counted.
 
 ## Week and month comparisons
 

@@ -69,7 +69,7 @@ export function Settings({ state, commit }) {
           </section>
           <section className="settings-card" id="backups">
             <h2>Backups</h2>
-            <p>A backup includes your entries, expense categories, targets, and exchange rates.</p>
+            <p>A backup includes your entries, expense categories, money coming in, targets, and exchange rates.</p>
             <div className="actions">
               <button type="button" className="button" onClick={backup}>Back up data</button>
               <button type="button" className="link" onClick={() => (hasRecords ? setConfirming(true) : restore())}>Restore backup</button>
@@ -85,7 +85,7 @@ export function Settings({ state, commit }) {
       {confirming ? (
         <ConfirmDialog
           title="Restore backup"
-          message="Replace all current records with a backup? You will choose the file next. This includes entries, expenses, categories, targets, exchange rates, and the currency."
+          message="Replace all current records with a backup? You will choose the file next. This includes entries, expenses, categories, money coming in, targets, exchange rates, and the currency."
           confirmLabel="Continue"
           onConfirm={restore}
           onCancel={() => setConfirming(false)}

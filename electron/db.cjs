@@ -2,7 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const { getCurrency } = require('../shared/currencies.cjs');
 const { BUILTIN_CATEGORIES, normalizeCategoryName } = require('../shared/categories.cjs');
-const { localStamp } = require('../shared/dates.cjs');
+const { localStamp, todayISO } = require('../shared/dates.cjs');
+const { validateIncomingItem, validateIncomingPayment } = require('../shared/incoming.cjs');
 const { PRESET_TARGETS } = require('../shared/presets.cjs');
 const { parseRate, rateFromText } = require('../shared/rates.cjs');
 const {
@@ -216,6 +217,7 @@ function mapCategory(row) {
       : [];
     const targets = all('SELECT * FROM targets').map(mapTarget)
       .sort((a, b) => a.deadline.localeCompare(b.deadline) || a.id - b.id);
+    const incoming = readIncoming();
     return {
       currency,
       blocked: blocked ? {
@@ -229,6 +231,7 @@ function mapCategory(row) {
     expenses,
     categories,
     targets,
+      incoming,
       rates: readRates(),
       databaseFile: filePath,
       notice,
@@ -487,6 +490,154 @@ function mapCategory(row) {
     return getState();
   }
 
+  function readIncoming() {
+    if (!tableNames(database).has('incoming_items')) return [];
+    const grouped = new Map();
+    if (tableNames(database).has('incoming_payments')) {
+      for (const payment of all('SELECT * FROM incoming_payments ORDER BY received_date, id')) {
+        const list = grouped.get(payment.item_id) || [];
+        list.push({
+          id: payment.id,
+          amount: payment.amount,
+          receivedDate: payment.received_date,
+          note: payment.note || '',
+        });
+        grouped.set(payment.item_id, list);
+      }
+    }
+    return all('SELECT * FROM incoming_items ORDER BY id').map((row) => {
+      const payments = grouped.get(row.id) || [];
+      const received = payments.reduce((sum, payment) => sum + payment.amount, 0);
+      return {
+        id: row.id,
+        party: row.party,
+        description: row.description,
+        kind: row.kind,
+        expectedAmount: row.expected_amount,
+        expectedDate: row.expected_date || null,
+        notes: row.notes || '',
+        createdOn: row.created_on,
+        cancelled: Number(row.cancelled) === 1,
+        payments,
+        received,
+      };
+    });
+  }
+
+  function incomingById(id) {
+    if (!Number.isInteger(id) || id <= 0) return null;
+    return get('SELECT * FROM incoming_items WHERE id = ?', [id]);
+  }
+
+  function receivedTotal(itemId) {
+    const row = get('SELECT COALESCE(SUM(amount), 0) AS total FROM incoming_payments WHERE item_id = ?', [itemId]);
+    return Number(row.total);
+  }
+
+  function addIncoming(input) {
+    const currency = requireReady();
+    const result = validateIncomingItem(input, { requireToken: true });
+    if (!result.ok) throw new Error(result.error);
+    checkAmount(result.value.expectedAmount, currency, 'Amount expected');
+    const existing = get('SELECT id FROM incoming_items WHERE client_token = ?', [result.value.clientToken]);
+    if (existing) return getState();
+    saveAfter(() => {
+      database.run(
+        `INSERT INTO incoming_items
+          (party, description, kind, expected_amount, expected_date, notes, created_on, cancelled, client_token)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+        [
+          result.value.party,
+          result.value.description,
+          result.value.kind,
+          result.value.expectedAmount,
+          result.value.expectedDate,
+          result.value.notes,
+          todayISO(),
+          result.value.clientToken,
+        ],
+      );
+    });
+    return getState();
+  }
+
+  function updateIncoming(input) {
+    const currency = requireReady();
+    const current = incomingById(input && input.id);
+    if (!current) throw new Error('That item is no longer in the records.');
+    const result = validateIncomingItem(input);
+    if (!result.ok) throw new Error(result.error);
+    checkAmount(result.value.expectedAmount, currency, 'Amount expected');
+    const received = receivedTotal(current.id);
+    if (result.value.expectedAmount < received) {
+      throw new Error('The expected amount cannot be less than payments already recorded.');
+    }
+    saveAfter(() => {
+      database.run(
+        `UPDATE incoming_items
+         SET party = ?, description = ?, kind = ?, expected_amount = ?, expected_date = ?, notes = ?
+         WHERE id = ?`,
+        [
+          result.value.party,
+          result.value.description,
+          result.value.kind,
+          result.value.expectedAmount,
+          result.value.expectedDate,
+          result.value.notes,
+          current.id,
+        ],
+      );
+    });
+    return getState();
+  }
+
+  function addIncomingPayment(input) {
+    const currency = requireReady();
+    const result = validateIncomingPayment(input);
+    if (!result.ok) throw new Error(result.error);
+    const current = incomingById(input.itemId);
+    if (!current) throw new Error('That item is no longer in the records.');
+    if (Number(current.cancelled) === 1) {
+      throw new Error('Reopen this item before recording a payment.');
+    }
+    checkAmount(result.value.amount, currency, 'Payment');
+    const duplicate = get('SELECT id FROM incoming_payments WHERE client_token = ?', [result.value.clientToken]);
+    if (duplicate) return getState();
+    const received = receivedTotal(current.id);
+    const left = current.expected_amount - received;
+    if (left <= 0) throw new Error('This item is already fully received.');
+    if (result.value.amount > left) throw new Error('That payment is larger than the amount still to receive.');
+    saveAfter(() => {
+      database.run(
+        `INSERT INTO incoming_payments (item_id, amount, received_date, note, client_token)
+         VALUES (?, ?, ?, ?, ?)`,
+        [current.id, result.value.amount, result.value.receivedDate, result.value.note, result.value.clientToken],
+      );
+    });
+    return getState();
+  }
+
+  function deleteIncomingPayment(id) {
+    requireReady();
+    if (!Number.isInteger(id) || !get('SELECT id FROM incoming_payments WHERE id = ?', [id])) {
+      throw new Error('That payment was not found.');
+    }
+    saveAfter(() => {
+      database.run('DELETE FROM incoming_payments WHERE id = ?', [id]);
+    });
+    return getState();
+  }
+
+  function setIncomingCancelled(id, cancelled) {
+    requireReady();
+    const current = incomingById(id);
+    if (!current) throw new Error('That item is no longer in the records.');
+    saveAfter(() => {
+      database.run('UPDATE incoming_items SET cancelled = ? WHERE id = ?', [cancelled ? 1 : 0, current.id]);
+    });
+    return getState();
+  }
+
   function backupTo(destination) {
     if (path.resolve(destination) === path.resolve(filePath)) {
       throw new Error('Choose a different file for the backup.');
@@ -562,6 +713,11 @@ function mapCategory(row) {
     deleteTarget,
     setRate,
     clearRate,
+    addIncoming,
+    updateIncoming,
+    addIncomingPayment,
+    deleteIncomingPayment,
+    setIncomingCancelled,
     backupTo,
     restoreFrom,
     close,
@@ -725,6 +881,33 @@ function migrateCategories(database) {
   setMeta(database, 'schema', '3');
 }
 
+function migrateIncoming(database) {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS incoming_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      party TEXT NOT NULL,
+      description TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      expected_amount INTEGER NOT NULL,
+      expected_date TEXT,
+      notes TEXT NOT NULL DEFAULT '',
+      created_on TEXT NOT NULL,
+      cancelled INTEGER NOT NULL DEFAULT 0,
+      client_token TEXT UNIQUE
+    );
+    CREATE TABLE IF NOT EXISTS incoming_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      item_id INTEGER NOT NULL,
+      amount INTEGER NOT NULL,
+      received_date TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      client_token TEXT UNIQUE
+    );
+    CREATE INDEX IF NOT EXISTS idx_incoming_payments_item ON incoming_payments(item_id);
+  `);
+  setMeta(database, 'schema', '4');
+}
+
 function seedPresets(database) {
   if (metaValue(database, 'presets_seeded') === '1') return;
   database.run('BEGIN');
@@ -790,11 +973,32 @@ const V2_TABLES = `
   );
   CREATE INDEX idx_sales_date ON sales(entry_date);
   CREATE INDEX idx_expenses_date ON expenses(entry_date);
+  CREATE TABLE incoming_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    party TEXT NOT NULL,
+    description TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    expected_amount INTEGER NOT NULL,
+    expected_date TEXT,
+    notes TEXT NOT NULL DEFAULT '',
+    created_on TEXT NOT NULL,
+    cancelled INTEGER NOT NULL DEFAULT 0,
+    client_token TEXT UNIQUE
+  );
+  CREATE TABLE incoming_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL,
+    amount INTEGER NOT NULL,
+    received_date TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    client_token TEXT UNIQUE
+  );
+  CREATE INDEX idx_incoming_payments_item ON incoming_payments(item_id);
 `;
 
 function createFresh(database) {
   database.exec(V2_TABLES);
-  setMeta(database, 'schema', '3');
+  setMeta(database, 'schema', '4');
   database.run("INSERT INTO settings (id, currency_code) VALUES (1, 'CNY')");
   seedPresets(database);
   seedCategories(database);
@@ -842,19 +1046,22 @@ function ensureSchema(database) {
     return 'created';
   }
   const version = metaValue(database, 'schema');
+  if (version === '4') return 'ready';
   if (version === '3') {
-    if (metaValue(database, 'categories_seeded') === '1') return 'ready';
-    seedCategories(database);
+    if (metaValue(database, 'categories_seeded') !== '1') seedCategories(database);
+    migrateIncoming(database);
     return 'migrated';
   }
   if (version === '2') {
     migrateCategories(database);
+    migrateIncoming(database);
     return 'migrated';
   }
   if (version === '1') {
     if (foreignAccount(database)) return 'blocked';
     migrateV1(database);
     migrateCategories(database);
+    migrateIncoming(database);
     return 'migrated';
   }
   throw new Error('This data file uses an unknown version.');
@@ -870,7 +1077,7 @@ function isPesabuanaFile(database) {
     statement = database.prepare("SELECT value FROM meta WHERE key = 'schema'");
     if (!statement.step()) return false;
     const value = statement.getAsObject().value;
-    return value === '1' || value === '2' || value === '3';
+    return value === '1' || value === '2' || value === '3' || value === '4';
   } catch (error) {
     return false;
   } finally {

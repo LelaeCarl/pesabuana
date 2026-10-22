@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { todayISO } from '../shared/dates.cjs';
 import { EntryDialog } from './components/EntryDialog.jsx';
 import { Entries } from './pages/Entries.jsx';
+import { Incoming } from './pages/Incoming.jsx';
 import { Overview } from './pages/Overview.jsx';
 import { Targets } from './pages/Targets.jsx';
 import { Settings } from './pages/Settings.jsx';
@@ -9,6 +10,7 @@ import { Settings } from './pages/Settings.jsx';
 const PAGES = [
   ['overview', 'Overview'],
   ['entries', 'Entries'],
+  ['incoming', 'Incoming'],
   ['targets', 'Targets'],
   ['settings', 'Settings'],
 ];
@@ -151,6 +153,7 @@ export default function App() {
             onEdit={editRow}
           />
         ) : null}
+        {page === 'incoming' ? <Incoming state={state} commit={commit} today={today} /> : null}
         {page === 'targets' ? (
           <Targets
             state={state}

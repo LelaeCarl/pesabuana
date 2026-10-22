@@ -791,6 +791,7 @@ dialog::backdrop { background: #20212438; }
   padding: 17px 28px;
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 9px;
   background: #FCFCFB;
 }
@@ -841,9 +842,21 @@ dialog::backdrop { background: #20212438; }
   .targets-grid .goal { padding: 20px 22px; }
 }
 
+.incoming-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 640px; }
+
+.incoming-text { overflow-wrap: anywhere; max-width: 240px; }
+
+.incoming-amounts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+
+.incoming-amounts strong { font-weight: 550; }
+
+textarea { font: inherit; color: inherit; border: 1px solid #C5C8CC; border-radius: 6px; padding: 10px 11px; min-height: 72px; resize: vertical; }
+
+dialog.wide-dialog { width: 560px; }
+
 @media (max-width: 1100px) {
   .topbar { padding: 0 24px; gap: 16px; }
-  .navigation button { padding: 8px 13px; }
+  .navigation button { padding: 8px 11px; }
   main { padding: 28px 24px; }
   .overview-grid { grid-template-columns: minmax(0, 1fr) 310px; gap: 20px; }
   .profit-header { padding: 22px 21px 0; align-items: flex-start; flex-direction: column; gap: 9px; }
@@ -856,7 +869,10 @@ dialog::backdrop { background: #20212438; }
 
 @media (max-width: 980px) {
   .local-note { display: none; }
-  .topbar { grid-template-columns: 1fr auto; height: 64px; }
+  .topbar { grid-template-columns: 1fr auto; height: auto; min-height: 64px; padding-top: 8px; padding-bottom: 8px; }
+  .navigation { flex-wrap: wrap; justify-content: flex-end; max-width: 520px; }
+  .incoming-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .incoming-amounts { grid-template-columns: 1fr; }
   .overview-grid { grid-template-columns: 1fr; }
   .profit-header { flex-direction: row; align-items: center; }
   .metric-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -865,6 +881,7 @@ dialog::backdrop { background: #20212438; }
   .settings-layout { grid-template-columns: 1fr; }
   .settings-aside { flex-direction: row; gap: 18px; }
   .entries-summary { grid-template-columns: 1fr; gap: 17px; }
+  .entries-summary.incoming-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .rate-row, .form-row { grid-template-columns: 1fr; }
 }
 

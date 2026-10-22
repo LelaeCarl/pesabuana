@@ -123,6 +123,7 @@ function installMenu() {
       submenu: [
         { label: 'Overview', click: () => broadcast('overview') },
         { label: 'Entries', click: () => broadcast('entries') },
+        { label: 'Incoming', click: () => broadcast('incoming') },
         { label: 'Targets', click: () => broadcast('targets') },
         { label: 'Settings', click: () => broadcast('settings') },
       ],
@@ -172,6 +173,11 @@ function registerHandlers() {
   handle('delete-target', (_event, id) => ({ state: database.deleteTarget(id) }));
   handle('set-rate', (_event, input) => ({ state: database.setRate(input && input.code, input && input.rate) }));
   handle('clear-rate', (_event, code) => ({ state: database.clearRate(code) }));
+  handle('add-incoming', (_event, input) => ({ state: database.addIncoming(input) }));
+  handle('update-incoming', (_event, input) => ({ state: database.updateIncoming(input) }));
+  handle('add-incoming-payment', (_event, input) => ({ state: database.addIncomingPayment(input) }));
+  handle('delete-incoming-payment', (_event, id) => ({ state: database.deleteIncomingPayment(id) }));
+  handle('set-incoming-cancelled', (_event, input) => ({ state: database.setIncomingCancelled(input && input.id, input && input.cancelled) }));
 
   handle('pick-backup', async () => {
     const window = BrowserWindow.getFocusedWindow();
